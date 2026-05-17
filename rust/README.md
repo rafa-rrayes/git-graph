@@ -1,6 +1,6 @@
 # git-graph — Rust version
 
-A small Rust crate (~150 lines) that compiles to a single static binary with no runtime dependency beyond `git` itself.
+A small Rust crate that compiles to a single static binary with no runtime dependency beyond `git` itself.
 
 ## Install
 
@@ -41,14 +41,10 @@ cargo build --release
 ## Dependencies
 
 - [`clap`](https://crates.io/crates/clap) — argument parsing
-- [`owo-colors`](https://crates.io/crates/owo-colors) — ANSI colors
+- [`terminal_size`](https://crates.io/crates/terminal_size) — detect terminal width
 
-No regex, no async, no extras.
+No regex, no async, no extras. ANSI colors are emitted as raw escape codes.
 
 ## Usage
 
-```bash
-git-graph              # last 10 commits
-git-graph -n 3         # last 3 commits
-git graph              # works via git's `git-*` subcommand discovery
-```
+See the [top-level README](../README.md#usage) — output is byte-identical to the Python implementation.

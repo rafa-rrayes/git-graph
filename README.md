@@ -52,12 +52,27 @@ Grab a release binary for macOS or Linux from the [Releases page](https://github
 ## Usage
 
 ```bash
-git-graph              # last 10 commits
-git-graph -n 3         # last 3 commits
-git graph              # works too — git auto-discovers `git-*` on PATH as subcommands
+git-graph                          # last 10 commits
+git-graph -n 3                     # last 3 commits
+git graph                          # works too — git auto-discovers `git-*` on PATH as subcommands
+
+git-graph main                     # commits on a specific ref
+git-graph v1.0..HEAD               # commits in a revision range
+git-graph -- src/                  # scope to a path (or multiple)
+
+git-graph --author rafa            # filter by author (substring match)
+git-graph --since "2 weeks ago"    # any git date string
+git-graph --until 2025-01-01
+git-graph --merges                 # include merge commits (off by default)
+
+git-graph --sort churn             # biggest commits first (default: date)
+git-graph --log-scale              # log-scale the bar so small commits stay visible
+git-graph --no-color               # plain output (also respects NO_COLOR and non-TTY)
 ```
 
-That's the whole API.
+Flags compose freely: `git-graph --author rafa --since "1 month ago" --sort churn -- src/`.
+
+The bar auto-scales to terminal width. When colors are off (piped, `NO_COLOR`, or `--no-color`), the bar falls back to `+`/`-` characters so the visual data survives.
 
 ## Why two versions?
 
