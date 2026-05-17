@@ -2,15 +2,7 @@
 
 A tiny CLI that prints your recent git commits with a colored `+`/`-` bar graph so you can eyeball the size and shape of each commit at a glance.
 
-```
-hash         +      -  graph                                      subject
-──────────────────────────────────────────────────────────────────────────────────────────────────────────────
-a28af7c +97    -593    ██████████████████████████████████████████  refactor(points): remove points settings…
-1b1141b +19    -385    ███████████████████████                     refactor(entity-settings): remove PS sett…
-46d5916 +510   -5      ██████████████████████████████              feat(calendar): add endpoints for fetchin…
-
-Bar scaled to max total (690 lines in one commit). 3 commits shown.
-```
+![git-graph preview](docs/preview.png)
 
 Green is insertions, red is deletions, and the bar is scaled to whichever commit in the view had the most total churn.
 
@@ -60,8 +52,8 @@ Grab a release binary for macOS or Linux from the [Releases page](https://github
 ## Usage
 
 ```bash
-git-graph              # last 3 commits
-git-graph -n 10        # last 10 commits
+git-graph              # last 10 commits
+git-graph -n 3         # last 3 commits
 git graph              # works too — git auto-discovers `git-*` on PATH as subcommands
 ```
 

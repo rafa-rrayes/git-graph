@@ -48,7 +48,7 @@ No regex, no async, no extras.
 ## Usage
 
 ```bash
-git-graph              # last 3 commits
-git-graph -n 10        # last 10 commits
+git-graph              # last 10 commits
+git-graph -n 3         # last 3 commits
 git graph              # works via git's `git-*` subcommand discovery
 ```

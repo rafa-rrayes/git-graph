@@ -10,7 +10,7 @@ const SUBJECT_WIDTH: usize = 50;
 #[command(version, about, long_about = None)]
 struct Args {
     /// Number of commits to show.
-    #[arg(short = 'n', long, default_value_t = 3)]
+    #[arg(short = 'n', long, default_value_t = 10)]
     count: usize,
 }
 
