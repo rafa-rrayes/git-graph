@@ -12,7 +12,7 @@ import subprocess
 import sys
 import time
 
-HASH_W = 8
+HASH_W = 7
 PM_W = 6
 AUTHOR_W = 12
 TIME_W = 4
@@ -27,9 +27,14 @@ def trunc(s: str, w: int) -> str:
     return s if len(s) <= w else s[: w - 1] + "…"
 
 
-def pad(s: str, w: int) -> str:
+def ljust(s: str, w: int) -> str:
     s = trunc(s, w)
     return s + " " * (w - len(s))
+
+
+def rjust(s: str, w: int) -> str:
+    s = trunc(s, w)
+    return " " * (w - len(s)) + s
 
 
 def relative_time(ts: int, now: int) -> str:
@@ -49,13 +54,24 @@ def relative_time(ts: int, now: int) -> str:
     return f"{d // (86400 * 365)}y"
 
 
+def has_count_flag(args_list: list[str]) -> bool:
+    for a in args_list:
+        if a in ("-n", "--count"):
+            return True
+        if a.startswith("--count="):
+            return True
+        if a.startswith("-n") and len(a) > 2 and a[2:].isdigit():
+            return True
+    return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__,
-        usage="git-graph [options] [<ref>...] [-- <path>...]",
+        usage="git-graph [options] [<n>] [<ref>...] [-- <path>...]",
     )
     parser.add_argument("-n", "--count", type=int, default=10,
-                        help="number of commits to show (default: 10)")
+                        help="number of commits (default: 10; bare integer also works)")
     parser.add_argument("--author", help="filter to commits by author (substring match)")
     parser.add_argument("--since", help="only commits after this date (any git date string)")
     parser.add_argument("--until", help="only commits before this date (any git date string)")
@@ -66,6 +82,10 @@ def main() -> int:
     parser.add_argument("--sort", choices=["date", "churn"], default="date",
                         help="sort order (default: date)")
     parser.add_argument("--no-color", action="store_true", help="disable color output")
+    parser.add_argument("--no-stats", action="store_true", help="hide the +/- numeric columns")
+    parser.add_argument("--no-author", action="store_true", help="hide the author column")
+    parser.add_argument("--no-when", action="store_true", help="hide the when (relative time) column")
+    parser.add_argument("--no-summary", action="store_true", help="hide the footer summary lines")
     parser.add_argument("refs", nargs="*",
                         help="optional refs or revision ranges (e.g. main, v1.0..HEAD)")
 
@@ -75,7 +95,18 @@ def main() -> int:
         pre, paths = argv[:idx], argv[idx + 1:]
     else:
         pre, paths = argv, []
+
+    explicit_count = has_count_flag(pre)
     args = parser.parse_args(pre)
+
+    if not explicit_count and args.refs and args.refs[0].isdigit():
+        args.count = int(args.refs[0])
+        args.refs = args.refs[1:]
+
+    show_stats = not args.no_stats
+    show_author = not args.no_author
+    show_when = not args.no_when
+    show_summary = not args.no_summary
 
     use_color = (
         sys.stdout.isatty()
@@ -146,8 +177,23 @@ def main() -> int:
     if args.sort == "churn":
         commits.sort(key=lambda c: c["add"] + c["rem"], reverse=True)
 
+    hash_col_w = max(HASH_W, max(len(c["hash"]) for c in commits))
+    meta_w = 0
+    if show_author:
+        meta_w = AUTHOR_W
+    if show_when:
+        meta_w = (meta_w + 1) if meta_w > 0 else 0
+        meta_w += TIME_W
+
+    fixed = hash_col_w
+    if show_stats:
+        fixed += 1 + PM_W + 1 + PM_W
+    fixed += 2
+    if meta_w > 0:
+        fixed += 2 + meta_w
+    fixed += 2
+
     term_w = shutil.get_terminal_size((80, 24)).columns
-    fixed = HASH_W + 1 + PM_W + 1 + PM_W + 2 + 2 + AUTHOR_W + 1 + TIME_W + 2
     avail = max(BAR_MIN + SUBJECT_MIN, term_w - fixed)
     bar_w = max(BAR_MIN, min(BAR_MAX, avail - SUBJECT_MIN))
     subject_w = max(SUBJECT_MIN, avail - bar_w)
@@ -157,12 +203,19 @@ def main() -> int:
     scaled_max = scale(max_val) or 1.0
     now = int(time.time())
 
-    print(
-        f'{BOLD}{"hash":<{HASH_W}} {"   +":>{PM_W}} {"   -":>{PM_W}}  '
-        f'{"graph":<{bar_w}}  '
-        f'{"author":<{AUTHOR_W}} {"when":>{TIME_W}}  '
-        f'subject{RESET}'
-    )
+    header_group1 = BOLD + ljust("hash", hash_col_w)
+    if show_stats:
+        header_group1 += " " + ljust("+", PM_W) + " " + ljust("-", PM_W)
+    header_parts = [header_group1, ljust("graph", bar_w)]
+    if meta_w > 0:
+        meta_h = []
+        if show_author:
+            meta_h.append(ljust("author", AUTHOR_W))
+        if show_when:
+            meta_h.append(rjust("when", TIME_W))
+        header_parts.append(" ".join(meta_h))
+    header_parts.append("subject" + RESET)
+    print("  ".join(header_parts))
     print("─" * term_w)
 
     for c in commits:
@@ -180,15 +233,26 @@ def main() -> int:
                 f'{RED}{del_ch * rem_w}{RESET}'
                 f'{" " * pad_w}'
             )
-        print(
-            f'{DIM}{c["hash"]}{RESET} '
-            f'{GREEN}+{c["add"]:<5}{RESET} '
-            f'{RED}-{c["rem"]:<5}{RESET}  '
-            f'{bar}  '
-            f'{pad(c["author"], AUTHOR_W)} '
-            f'{relative_time(c["ts"], now):>{TIME_W}}  '
-            f'{trunc(c["subject"], subject_w)}'
-        )
+
+        row_group1 = f'{DIM}{ljust(c["hash"], hash_col_w)}{RESET}'
+        if show_stats:
+            row_group1 += (
+                f' {GREEN}+{c["add"]:<5}{RESET}'
+                f' {RED}-{c["rem"]:<5}{RESET}'
+            )
+        row_parts = [row_group1, bar]
+        if meta_w > 0:
+            meta_d = []
+            if show_author:
+                meta_d.append(ljust(c["author"], AUTHOR_W))
+            if show_when:
+                meta_d.append(rjust(relative_time(c["ts"], now), TIME_W))
+            row_parts.append(" ".join(meta_d))
+        row_parts.append(trunc(c["subject"], subject_w))
+        print("  ".join(row_parts))
+
+    if not show_summary:
+        return 0
 
     total_add = sum(c["add"] for c in commits)
     total_rem = sum(c["rem"] for c in commits)

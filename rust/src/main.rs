@@ -6,7 +6,7 @@ use std::process::{exit, Command};
 use std::time::{SystemTime, UNIX_EPOCH};
 use terminal_size::{terminal_size, Width};
 
-const HASH_W: usize = 8;
+const HASH_W: usize = 7;
 const PM_W: usize = 6;
 const AUTHOR_W: usize = 12;
 const TIME_W: usize = 4;
@@ -26,10 +26,10 @@ enum SortBy {
     version,
     about,
     long_about = None,
-    override_usage = "git-graph [options] [<ref>...] [-- <path>...]",
+    override_usage = "git-graph [options] [<n>] [<ref>...] [-- <path>...]",
 )]
 struct Args {
-    /// Number of commits to show.
+    /// Number of commits (default: 10; bare integer also works).
     #[arg(short = 'n', long, default_value_t = 10)]
     count: usize,
 
@@ -61,12 +61,45 @@ struct Args {
     #[arg(long = "no-color")]
     no_color: bool,
 
+    /// Hide the +/- numeric columns.
+    #[arg(long = "no-stats")]
+    no_stats: bool,
+
+    /// Hide the author column.
+    #[arg(long = "no-author")]
+    no_author: bool,
+
+    /// Hide the when (relative time) column.
+    #[arg(long = "no-when")]
+    no_when: bool,
+
+    /// Hide the footer summary lines.
+    #[arg(long = "no-summary")]
+    no_summary: bool,
+
     /// Optional refs or revision ranges (e.g. main, v1.0..HEAD).
     refs: Vec<String>,
 
     /// Paths to limit by (after `--`).
     #[arg(last = true)]
     paths: Vec<String>,
+}
+
+fn has_count_flag(args_list: &[String]) -> bool {
+    for a in args_list {
+        if a == "-n" || a == "--count" {
+            return true;
+        }
+        if a.starts_with("--count=") {
+            return true;
+        }
+        if let Some(rest) = a.strip_prefix("-n") {
+            if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 struct Commit {
@@ -165,7 +198,23 @@ fn relative_time(ts: u64, now: u64) -> String {
 }
 
 fn main() {
-    let args = Args::parse();
+    let raw: Vec<String> = env::args().collect();
+    let pre_for_check: &[String] = match raw.iter().skip(1).position(|a| a == "--") {
+        Some(i) => &raw[1..(1 + i)],
+        None => &raw[raw.len().min(1)..],
+    };
+    let explicit_count = has_count_flag(pre_for_check);
+    let mut args = Args::parse();
+    if !explicit_count
+        && !args.refs.is_empty()
+        && !args.refs[0].is_empty()
+        && args.refs[0].chars().all(|c| c.is_ascii_digit())
+    {
+        if let Ok(n) = args.refs[0].parse::<usize>() {
+            args.count = n;
+            args.refs.remove(0);
+        }
+    }
 
     let use_color = std::io::stdout().is_terminal()
         && env::var_os("NO_COLOR").is_none()
@@ -261,10 +310,42 @@ fn main() {
         commits.sort_by(|a, b| (b.add + b.rem).cmp(&(a.add + a.rem)));
     }
 
+    let show_stats = !args.no_stats;
+    let show_author = !args.no_author;
+    let show_when = !args.no_when;
+    let show_summary = !args.no_summary;
+
+    let hash_col_w = HASH_W.max(
+        commits
+            .iter()
+            .map(|c| c.hash.chars().count())
+            .max()
+            .unwrap_or(0),
+    );
+    let mut meta_w = 0usize;
+    if show_author {
+        meta_w = AUTHOR_W;
+    }
+    if show_when {
+        if meta_w > 0 {
+            meta_w += 1;
+        }
+        meta_w += TIME_W;
+    }
+
+    let mut fixed = hash_col_w;
+    if show_stats {
+        fixed += 1 + PM_W + 1 + PM_W;
+    }
+    fixed += 2;
+    if meta_w > 0 {
+        fixed += 2 + meta_w;
+    }
+    fixed += 2;
+
     let term_w = terminal_size()
         .map(|(Width(w), _)| w as usize)
         .unwrap_or(80);
-    let fixed = HASH_W + 1 + PM_W + 1 + PM_W + 2 + 2 + AUTHOR_W + 1 + TIME_W + 2;
     let avail = term_w.saturating_sub(fixed).max(BAR_MIN + SUBJECT_MIN);
     let bar_w = avail.saturating_sub(SUBJECT_MIN).clamp(BAR_MIN, BAR_MAX);
     let subject_w = avail.saturating_sub(bar_w).max(SUBJECT_MIN);
@@ -295,17 +376,26 @@ fn main() {
         .map(|d| d.as_secs())
         .unwrap_or(0);
 
-    println!(
-        "{bold}{} {} {}  {}  {} {}  subject{reset}",
-        ljust("hash", HASH_W),
-        rjust("   +", PM_W),
-        rjust("   -", PM_W),
-        ljust("graph", bar_w),
-        ljust("author", AUTHOR_W),
-        rjust("when", TIME_W),
-        bold = bold,
-        reset = reset,
-    );
+    let mut header_group1 = format!("{}{}", bold, ljust("hash", hash_col_w));
+    if show_stats {
+        header_group1.push(' ');
+        header_group1.push_str(&ljust("+", PM_W));
+        header_group1.push(' ');
+        header_group1.push_str(&ljust("-", PM_W));
+    }
+    let mut header_parts: Vec<String> = vec![header_group1, ljust("graph", bar_w)];
+    if meta_w > 0 {
+        let mut meta_h: Vec<String> = Vec::new();
+        if show_author {
+            meta_h.push(ljust("author", AUTHOR_W));
+        }
+        if show_when {
+            meta_h.push(rjust("when", TIME_W));
+        }
+        header_parts.push(meta_h.join(" "));
+    }
+    header_parts.push(format!("subject{}", reset));
+    println!("{}", header_parts.join("  "));
     println!("{}", "─".repeat(term_w));
 
     for c in &commits {
@@ -332,15 +422,34 @@ fn main() {
             )
         };
 
-        println!(
-            "{dim}{hash}{reset} {green}+{add:<5}{reset} {red}-{rem:<5}{reset}  {bar}  {auth} {when}  {subj}",
-            dim = dim, reset = reset, green = green, red = red,
-            hash = c.hash, add = c.add, rem = c.rem,
-            bar = bar,
-            auth = ljust(&c.author, AUTHOR_W),
-            when = rjust(&relative_time(c.ts, now), TIME_W),
-            subj = trunc(&c.subject, subject_w),
-        );
+        let mut row_group1 = format!("{}{}{}", dim, ljust(&c.hash, hash_col_w), reset);
+        if show_stats {
+            row_group1.push_str(&format!(
+                " {green}+{add:<5}{reset} {red}-{rem:<5}{reset}",
+                green = green,
+                reset = reset,
+                red = red,
+                add = c.add,
+                rem = c.rem,
+            ));
+        }
+        let mut row_parts: Vec<String> = vec![row_group1, bar];
+        if meta_w > 0 {
+            let mut meta_d: Vec<String> = Vec::new();
+            if show_author {
+                meta_d.push(ljust(&c.author, AUTHOR_W));
+            }
+            if show_when {
+                meta_d.push(rjust(&relative_time(c.ts, now), TIME_W));
+            }
+            row_parts.push(meta_d.join(" "));
+        }
+        row_parts.push(trunc(&c.subject, subject_w));
+        println!("{}", row_parts.join("  "));
+    }
+
+    if !show_summary {
+        return;
     }
 
     let total_add: u64 = commits.iter().map(|c| c.add as u64).sum();
