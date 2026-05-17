@@ -1,0 +1,23 @@
+[package]
+name = "git-graph"
+version = "0.1.0"
+edition = "2021"
+description = "Show recent git commits with a visual +/- bar graph"
+license = "MIT"
+repository = "https://github.com/rafa-rrayes/git-graph"
+readme = "README.md"
+keywords = ["git", "cli", "graph", "stats"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "git-graph"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+owo-colors = "4"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
